@@ -70,7 +70,7 @@ The getset library offers the following functions. For more detailed description
 
 ### getset.defineProperty( table, key, descriptor )
 
-Defines a getter and setter on a table for a specific key. Both are optional.
+Defines a getter and a setter on a table for a specific key. Both are optional.
 
 ### getset.preventExtensions( table )
 
