@@ -31,7 +31,7 @@ A library for defining getters and setters on Lua tables by [Josh Tynjala](http:
 		
 		getset.defineProperty(point, "length",
 		{
-			get = function(self)
+			get = function()
 				return math.sqrt(_x * _x + _y * _y)
 			end
 			-- no setter required
