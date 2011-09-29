@@ -80,7 +80,7 @@ Prevents new properties from being added to a table. Existing properties may be 
 
 Determines if a table is may be extended.
 
-### getset.preventExtensions( table )
+### getset.seal( table )
 
 Prevents new properties from being added to a table, and existing properties may be modified, but not configured.
 
