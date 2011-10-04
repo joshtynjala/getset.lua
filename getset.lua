@@ -17,8 +17,7 @@ local function throwSealedError(table, key)
 	error("Cannot redefine property '" .. key .. "' because " .. tostring(table) .. " is sealed.")
 end
 
-local getsetmt = {}
-function getsetmt.__index(table, key)
+local function getset__index(table, key)
 	local gs = table.__getset
 	
 	-- try to find a descriptor first
@@ -28,13 +27,14 @@ function getsetmt.__index(table, key)
 	end
 	
 	-- if an old metatable exists, use that
-	if gs.mt then
-		return gs.mt.__index(table, key)
+	local oldindex = gs.oldindex
+	if oldindex then
+		return oldindex(table, key)
 	end
 	
 	return nil
 end
-function getsetmt.__newindex(table, key, value)
+local function getset__newindex(table, key, value)
 	local gs = table.__getset
 	
 	-- check for a property first
@@ -47,15 +47,18 @@ function getsetmt.__newindex(table, key, value)
 		return
 	end
 	
-	-- use the metatable next
-	if gs.mt and gs.mt.__newindex then
-		gs.mt.__newindex(table, key, value)
-		return
-	end
-	
-	-- finally, fall back to rawset()
 	if gs.isExtensible then
-		rawset(table, key, value)
+		-- use the oldnewindex from the previous metatable next
+		-- if it had a different form of getters, and isExtensible is false,
+		-- then they will be ignored.
+		local oldnewindex = gs.oldnewindex
+		if oldnewindex then
+			oldnewindex(table, key, value)
+			return
+		else
+			-- finally, fall back to rawset()
+			rawset(table, key, value)
+		end
 	else
 		throwNotExtensibleError(table, key)
 	end
@@ -67,14 +70,27 @@ local function initgetset(table)
 		return
 	end
 	
-	local oldmt = getmetatable(table)
-	table.__getset = 
+	local mt = getmetatable(table)
+	local oldindex
+	local oldnewindex
+	if mt then
+		oldindex = mt.__index
+		oldnewindex = mt.__newindex
+	else
+		mt = {}
+		setmetatable(table, mt)
+	end
+	mt.__index = getset__index
+	mt.__newindex = getset__newindex
+	rawset(table, "__getset",
 	{
-		mt = oldmt,
+		oldindex = oldindex,
+		oldnewindex = oldnewindex,
 		descriptors = {},
-		isExtensible = true
-	}
-	setmetatable(table, getsetmt)
+		isExtensible = true,
+		isOldMetatableExtensible = true,
+		isSealed = false
+	})
 	return table
 end
 
@@ -86,7 +102,7 @@ local getset = {}
 -- @param key			The name of the property to be defined or modified
 -- @param descriptor	The descriptor containing the getter and setter functions for the property being defined or modified
 -- @return 				The table and the old raw value of the field
-function getset.defineProperty (table, key, descriptor)
+function getset.defineProperty(table, key, descriptor)
 	initgetset(table)
 	
 	local gs = table.__getset
@@ -115,6 +131,7 @@ end
 -- @return			The table
 function getset.preventExtensions(table)
 	initgetset(table)
+	
 	local gs = table.__getset
 	gs.isExtensible = false
 	return table
