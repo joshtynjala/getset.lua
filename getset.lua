@@ -27,9 +27,9 @@ local function getset__index(table, key)
 	end
 	
 	-- if an old metatable exists, use that
-	local oldindex = gs.oldindex
-	if oldindex then
-		return oldindex(table, key)
+	local old__index = gs.old__index
+	if old__index then
+		return old__index(table, key)
 	end
 	
 	return nil
@@ -47,18 +47,17 @@ local function getset__newindex(table, key, value)
 		return
 	end
 	
+	-- use the __newindex from the previous metatable next
+	-- if it exists, then isExtensible will be ignored
+	local old__newindex = gs.old__newindex
+	if old__newindex then
+		old__newindex(table, key, value)
+		return
+	end
+	
+	-- finally, fall back to rawset()
 	if gs.isExtensible then
-		-- use the oldnewindex from the previous metatable next
-		-- if it had a different form of getters, and isExtensible is false,
-		-- then they will be ignored.
-		local oldnewindex = gs.oldnewindex
-		if oldnewindex then
-			oldnewindex(table, key, value)
-			return
-		else
-			-- finally, fall back to rawset()
-			rawset(table, key, value)
-		end
+		rawset(table, key, value)
 	else
 		throwNotExtensibleError(table, key)
 	end
@@ -71,11 +70,11 @@ local function initgetset(table)
 	end
 	
 	local mt = getmetatable(table)
-	local oldindex
-	local oldnewindex
+	local old__index
+	local old__newindex
 	if mt then
-		oldindex = mt.__index
-		oldnewindex = mt.__newindex
+		old__index = mt.__index
+		old__newindex = mt.__newindex
 	else
 		mt = {}
 		setmetatable(table, mt)
@@ -84,8 +83,8 @@ local function initgetset(table)
 	mt.__newindex = getset__newindex
 	rawset(table, "__getset",
 	{
-		oldindex = oldindex,
-		oldnewindex = oldnewindex,
+		old__index = old__index,
+		old__newindex = old__newindex,
 		descriptors = {},
 		isExtensible = true,
 		isOldMetatableExtensible = true,
@@ -98,6 +97,11 @@ local getset = {}
 
 --- Defines a new property or modifies an existing property on a table. A getter
 -- and a setter may be defined in the descriptor, but both are optional.
+-- If a metatable already existed, and it had something similar to getters and
+-- setters defined using __index and __newindex, then those functions can be 
+-- accessed directly through table.__getset.old__index() and
+-- table.__getset.old__newindex(). This is useful if you want to override with
+-- defineProperty(), but still manipulate the original functions.
 -- @param table			The table on which to define or modify the property
 -- @param key			The name of the property to be defined or modified
 -- @param descriptor	The descriptor containing the getter and setter functions for the property being defined or modified
@@ -108,11 +112,11 @@ function getset.defineProperty(table, key, descriptor)
 	local gs = table.__getset
 	
 	local oldDescriptor = gs.descriptors[key]
-	local oldRawValue = rawget(table, key)
+	local oldValue = table[key]
 	
-	if gs.isSealed and (oldDescriptor or oldRawValue) then
+	if gs.isSealed and (oldDescriptor or oldValue) then
 		throwSealedError(table, key)
-	elseif not gs.isExtensible and not oldDescriptor and not oldRawValue then
+	elseif not gs.isExtensible and not oldDescriptor and not oldValue then
 		throwNotExtensibleError(table, key)
 	end
 	
@@ -122,7 +126,7 @@ function getset.defineProperty(table, key, descriptor)
 	rawset(table, key, nil)
 	
 	-- but we'll return the old raw value, just in case it is needed
-	return table, oldRawValue
+	return table, oldValue
 end
 
 --- Prevents new properties from being added to a table. Existing properties may
@@ -139,7 +143,9 @@ end
 
 --- Determines if a table is extensible. If a table isn't initialized with
 -- getset, this function returns true, since regular tables are always
--- extensible.
+-- extensible. If a previous __newindex metatable method was defined before
+-- this table was initialized with getset, then isExtensible will be ignored
+-- completely.
 -- @param table		The table to be checked
 -- @return			true if extensible, false if non-extensible
 function getset.isExtensible(table)
@@ -164,6 +170,7 @@ end
 
 --= Determines if a table is sealed. If a table isn't initialized with getset,
 -- this function returns false, since regular tables are never sealed.
+-- completely.
 -- @param table		The table to be checked
 -- @return			true if sealed, false if not sealed
 function getset.isSealed(table)
